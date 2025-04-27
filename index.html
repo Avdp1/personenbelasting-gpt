@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>De Personenbelasting Adviseur</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f5f5f5;
+      margin: 0;
+      padding: 20px;
+    }
+    #chatContainer {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      height: 80vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #messages {
+      flex-grow: 1;
+      overflow-y: auto;
+      margin-bottom: 10px;
+    }
+    .message {
+      padding: 10px 15px;
+      border-radius: 20px;
+      margin: 10px 0;
+      max-width: 80%;
+      clear: both;
+    }
+    .user {
+      background-color: #d1e7dd;
+      align-self: flex-start;
+    }
+    .assistant {
+      background-color: #e2e3e5;
+      align-self: flex-end;
+    }
+    #inputContainer {
+      display: flex;
+    }
+    #userInput {
+      flex-grow: 1;
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 20px;
+      border: 1px solid #ccc;
+      outline: none;
+    }
+    #sendButton {
+      padding: 10px 20px;
+      margin-left: 10px;
+      border: none;
+      background-color: #0d6efd;
+      color: white;
+      border-radius: 20px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<div id="chatContainer">
+  <div id="messages"></div>
+  <div id="inputContainer">
+    <input type="text" id="userInput" placeholder="Typ hier je vraag...">
+    <button id="sendButton">Verzenden</button>
+  </div>
+</div>
+
+<script>
+  let threadId = null;
+
+  async function sendMessage() {
+    const inputField = document.getElementById("userInput");
+    const userMessage = inputField.value.trim();
+    if (!userMessage) return;
+
+    addMessage(userMessage, "user");
+    inputField.value = "";
+
+    if (!threadId) {
+      const threadResp = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ action: "createThread" })
+      });
+      const threadData = await threadResp.json();
+      threadId = threadData.threadId;
+    }
+
+    await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "sendMessage",
+        threadId: threadId,
+        userMessage: userMessage
+      })
+    });
+
+    const runResp = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "runThread",
+        threadId: threadId
+      })
+    });
+
+    const runData = await runResp.json();
+    let status = runData.status;
+    let runId = runData.runId;
+
+    while (status === "in_progress" || status === "queued") {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const statusCheck = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          action: "checkRun",
+          threadId: threadId,
+          runId: runId
+        })
+      });
+      const statusData = await statusCheck.json();
+      status = statusData.status;
+    }
+
+    const messagesResp = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "getMessages",
+        threadId: threadId
+      })
+    });
+
+    const messagesData = await messagesResp.json();
+    const assistantReply = messagesData.assistantReply;
+    if (assistantReply) {
+      addMessage(assistantReply, "assistant");
+    }
+  }
+
+  function addMessage(text, sender) {
+    const messagesDiv = document.getElementById("messages");
+    const messageDiv = document.createElement("div");
+    messageDiv.className = `message ${sender}`;
+    messageDiv.innerText = text;
+    messagesDiv.appendChild(messageDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  }
+
+  document.getElementById("sendButton").addEventListener("click", sendMessage);
+  document.getElementById("userInput").addEventListener("keypress", (e) => {
+    if (e.key === "Enter") {
+      sendMessage();
+    }
+  });
+</script>
+
+</body>
+</html>
